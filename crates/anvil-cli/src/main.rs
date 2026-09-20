@@ -2,11 +2,12 @@ mod remote;
 
 use anyhow::{bail, Context, Result};
 use anvil_core::Repository;
-use anvil_protocol::AgentResponse;
+use anvil_protocol::{AgentResponse, EntryKind};
 use clap::{Parser, Subcommand};
 use std::{
+    fs,
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 #[derive(Debug, Parser)]
@@ -18,54 +19,71 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Initialize an Anvil repository.
     Init {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
-    /// Show files changed since the latest commit.
     Status {
         #[arg(default_value = ".")]
         path: PathBuf,
-        /// Emit machine-readable JSON.
         #[arg(long)]
         json: bool,
     },
-    /// Snapshot the current filesystem state.
     Commit {
         #[arg(default_value = ".")]
         path: PathBuf,
         #[arg(short, long)]
         message: String,
     },
-    /// Show local Anvil commit history.
     Log {
         #[arg(default_value = ".")]
         path: PathBuf,
         #[arg(short = 'n', long, default_value_t = 20)]
         limit: usize,
     },
-    /// Pair this Linux machine with an Anvil Agent.
     Pair {
-        /// Local alias, for example "mellow".
         name: String,
-        /// Agent endpoint, for example "mellowsmp.fun:45920".
         endpoint: String,
-        /// One-time code printed by the agent. If omitted, Anvil prompts for it.
         #[arg(long)]
         code: Option<String>,
     },
-    /// Show remote Minecraft server information.
     Info {
         name: String,
         #[arg(long)]
         json: bool,
     },
-    /// Show online players from a paired server.
     Players {
         name: String,
         #[arg(long)]
         json: bool,
+    },
+    /// List a remote server directory as a tree.
+    Tree {
+        name: String,
+        #[arg(default_value = "")]
+        path: String,
+        #[arg(long, default_value_t = 2)]
+        depth: usize,
+    },
+    /// Print a remote UTF-8 text file.
+    Cat {
+        name: String,
+        path: String,
+    },
+    /// Download a remote file.
+    Pull {
+        name: String,
+        remote_path: String,
+        local_path: Option<PathBuf>,
+    },
+    /// Upload a local file. Existing remote content is backed up locally first.
+    Push {
+        name: String,
+        local_path: PathBuf,
+        remote_path: String,
+        /// Skip the overwrite confirmation.
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 }
 
@@ -91,15 +109,9 @@ fn main() -> Result<()> {
             } else if status.is_clean() {
                 println!("clean");
             } else {
-                for path in status.added {
-                    println!("A  {path}");
-                }
-                for path in status.modified {
-                    println!("M  {path}");
-                }
-                for path in status.deleted {
-                    println!("D  {path}");
-                }
+                for path in status.added { println!("A  {path}"); }
+                for path in status.modified { println!("M  {path}"); }
+                for path in status.deleted { println!("D  {path}"); }
             }
         }
         Command::Commit { path, message } => {
@@ -118,11 +130,7 @@ fn main() -> Result<()> {
                 println!();
             }
         }
-        Command::Pair {
-            name,
-            endpoint,
-            code,
-        } => {
+        Command::Pair { name, endpoint, code } => {
             let code = code.unwrap_or(prompt("Pair code: ")?);
             let paired = remote::pair(&name, &endpoint, &code)?;
             println!("Paired '{}' with {}", paired.name, paired.endpoint);
@@ -168,6 +176,121 @@ fn main() -> Result<()> {
                 other => bail!("unexpected agent response: {other:?}"),
             }
         }
+        Command::Tree { name, path, depth } => {
+            let server = remote::load(&name)?;
+            let label = if path.is_empty() { "/" } else { &path };
+            println!("{label}");
+            print_tree(&server, &path, "", depth)?;
+        }
+        Command::Cat { name, path } => {
+            let server = remote::load(&name)?;
+            let file = remote::read_file(&server, &path)?;
+            let text = std::str::from_utf8(&file.bytes)
+                .with_context(|| format!("{path} is not UTF-8 text; use anvil pull instead"))?;
+            print!("{text}");
+        }
+        Command::Pull {
+            name,
+            remote_path,
+            local_path,
+        } => {
+            let server = remote::load(&name)?;
+            let file = remote::read_file(&server, &remote_path)?;
+            let destination = local_path.unwrap_or_else(|| {
+                Path::new(&remote_path)
+                    .file_name()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("download"))
+            });
+            if let Some(parent) = destination.parent() {
+                if !parent.as_os_str().is_empty() {
+                    fs::create_dir_all(parent)?;
+                }
+            }
+            fs::write(&destination, &file.bytes)?;
+            println!(
+                "Pulled {} -> {} ({} bytes, {})",
+                remote_path,
+                destination.display(),
+                file.bytes.len(),
+                &file.sha256[..12]
+            );
+        }
+        Command::Push {
+            name,
+            local_path,
+            remote_path,
+            yes,
+        } => {
+            let server = remote::load(&name)?;
+            let bytes = fs::read(&local_path)
+                .with_context(|| format!("failed to read {}", local_path.display()))?;
+            let local_hash = remote::sha256_bytes(&bytes);
+
+            if let Some(previous) = remote::try_read_file(&server, &remote_path)? {
+                if previous.sha256 == local_hash {
+                    println!("Already up to date: {remote_path}");
+                    return Ok(());
+                }
+
+                let object = remote::store_backup(&server, &previous)?;
+                println!(
+                    "Backed up remote {} ({} -> {})",
+                    remote_path,
+                    &previous.sha256[..12],
+                    object.display()
+                );
+
+                if !yes
+                    && !confirm(&format!(
+                        "Replace {} with {}? [y/N] ",
+                        remote_path,
+                        local_path.display()
+                    ))?
+                {
+                    println!("Cancelled.");
+                    return Ok(());
+                }
+            }
+
+            let hash = remote::write_file(&server, &remote_path, &bytes)?;
+            println!(
+                "Pushed {} -> {} ({} bytes, {})",
+                local_path.display(),
+                remote_path,
+                bytes.len(),
+                &hash[..12]
+            );
+        }
+    }
+    Ok(())
+}
+
+fn print_tree(
+    server: &remote::RemoteServer,
+    path: &str,
+    prefix: &str,
+    depth: usize,
+) -> Result<()> {
+    if depth == 0 {
+        return Ok(());
+    }
+    let entries = remote::list_dir(server, path)?;
+    let len = entries.len();
+    for (index, entry) in entries.into_iter().enumerate() {
+        let last = index + 1 == len;
+        let connector = if last { "└── " } else { "├── " };
+        let suffix = match entry.kind {
+            EntryKind::Directory => "/",
+            EntryKind::Symlink => "@",
+            EntryKind::File => "",
+        };
+        println!("{prefix}{connector}{}{suffix}", entry.name);
+
+        if entry.kind == EntryKind::Directory {
+            let child_prefix = format!("{prefix}{}", if last { "    " } else { "│   " });
+            print_tree(server, &entry.path, &child_prefix, depth - 1)?;
+        }
     }
     Ok(())
 }
@@ -178,6 +301,11 @@ fn prompt(label: &str) -> Result<String> {
     let mut value = String::new();
     io::stdin().read_line(&mut value)?;
     Ok(value.trim().to_owned())
+}
+
+fn confirm(label: &str) -> Result<bool> {
+    let value = prompt(label)?;
+    Ok(matches!(value.to_ascii_lowercase().as_str(), "y" | "yes"))
 }
 
 fn short(id: &str) -> &str {

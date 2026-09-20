@@ -5,6 +5,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
+import java.nio.file.Path;
 
 public final class AnvilAgentPlugin extends JavaPlugin {
     private AgentServer agent;
@@ -18,11 +19,22 @@ public final class AnvilAgentPlugin extends JavaPlugin {
             String bind = getConfig().getString("bind", "127.0.0.1");
             int port = getConfig().getInt("port", 45920);
             long ttl = getConfig().getLong("pair-code-ttl-seconds", 600);
+            long maxTransferBytes = getConfig().getLong("max-transfer-bytes", 134_217_728L);
+            Path serverRoot = Path.of(".").toAbsolutePath().normalize();
 
-            agent = new AgentServer(this, identity, bind, port, ttl);
+            agent = new AgentServer(
+                this,
+                identity,
+                bind,
+                port,
+                ttl,
+                maxTransferBytes,
+                serverRoot
+            );
             agent.start();
 
             getLogger().info("Anvil Agent listening on " + bind + ":" + port);
+            getLogger().info("Filesystem root: " + agent.serverRoot());
             if (!isLoopback(bind)) {
                 getLogger().warning("The v0 Anvil transport is not encrypted yet. Do not expose this port to the public Internet.");
             }

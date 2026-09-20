@@ -1,5 +1,8 @@
 # Loopback is intentionally the safe default while the v0 transport is unencrypted.
-# Change to 0.0.0.0 only on a trusted network during development.
+# Change to 0.0.0.0 only on a trusted LAN/VPN during development.
 bind: "127.0.0.1"
 port: 45920
 pair-code-ttl-seconds: 600
+
+# Hard cap for a single READ/WRITE request.
+max-transfer-bytes: 134217728

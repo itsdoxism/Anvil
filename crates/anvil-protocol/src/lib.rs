@@ -29,7 +29,7 @@ pub struct DirEntry {
     pub size: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EntryKind {
     File,
@@ -54,6 +54,20 @@ pub enum AgentResponse {
     },
     Players {
         players: Vec<PlayerInfo>,
+    },
+    Directory {
+        path: String,
+        entries: Vec<DirEntry>,
+    },
+    File {
+        path: String,
+        size: u64,
+        sha256: String,
+    },
+    Written {
+        path: String,
+        size: u64,
+        sha256: String,
     },
     Error {
         code: String,
