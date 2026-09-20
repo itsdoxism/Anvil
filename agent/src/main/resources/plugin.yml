@@ -1,0 +1,17 @@
+name: AnvilAgent
+version: '0.1.0'
+main: dev.anvil.agent.AnvilAgentPlugin
+description: Direct bridge between a Paper server and the local-first Anvil CLI.
+author: itsdoxism
+api-version: '26.2'
+
+commands:
+  anvil:
+    description: Anvil Agent administration.
+    usage: /anvil pair
+    permission: anvil.admin
+
+permissions:
+  anvil.admin:
+    description: Allows rotating Anvil pairing codes.
+    default: op

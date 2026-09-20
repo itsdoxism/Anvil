@@ -2,11 +2,9 @@
 
 **Local-first version control and remote tooling for Minecraft servers on Linux.**
 
-Anvil is being built for server owners and developers who would rather open a terminal than a web panel. The local CLI owns history, snapshots and backups; a small Paper/Purpur agent will later expose server files and runtime data over a direct, authenticated connection.
+Anvil is built for server owners and developers who would rather open a terminal than a web panel. The Linux CLI owns history, snapshots and backups; a small Paper/Purpur agent exposes server files and runtime data over a direct connection.
 
-## Current state
-
-The first milestone implements the local versioning core:
+## Local versioning
 
 ```bash
 cargo run -p anvil-cli -- init ./server
@@ -15,16 +13,21 @@ cargo run -p anvil-cli -- commit ./server -m "before plugin update"
 cargo run -p anvil-cli -- log ./server
 ```
 
-A repository stores metadata under `.anvil/` and file contents in a SHA-256 content-addressed object store, so unchanged files are not duplicated between commits.
+Repositories use a SHA-256 content-addressed object store under `.anvil/`, so unchanged files are not duplicated between commits.
 
-## Direction
+## Remote milestone
 
-Planned next layers:
+The first Anvil Agent milestone now supports pairing plus live server/player information:
 
-- direct Linux CLI ↔ Paper/Purpur agent pairing
-- remote `pull`, `push`, `tree`, `cat` and `$EDITOR` workflows
-- safe plugin JAR deployment with automatic local backup and rollback
-- live logs, server info and player info
-- agent-friendly JSON output and explicit approval gates for destructive writes
+```bash
+anvil pair mellow 192.168.1.20:45920
+anvil info mellow
+anvil players mellow
+anvil players mellow --json
+```
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+The current v0 transport is **development-only and not encrypted yet**. The agent binds to `127.0.0.1` by default. Use a trusted LAN/VPN for remote testing until authenticated encryption lands.
+
+The next remote milestone adds filesystem operations (`tree`, `pull`, `push`) and safe plugin JAR deployment/rollback.
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`agent/README.md`](agent/README.md).
