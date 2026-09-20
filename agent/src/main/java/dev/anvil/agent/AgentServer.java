@@ -48,8 +48,6 @@ final class AgentServer implements AutoCloseable {
         serverSocket = socket;
         running.set(true);
 
-        rotatePairCode();
-
         Thread.ofPlatform()
             .name("anvil-agent-accept")
             .daemon(true)
