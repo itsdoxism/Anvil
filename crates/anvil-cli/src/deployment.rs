@@ -139,8 +139,10 @@ pub fn default_remote_path(local_jar: &Path) -> Result<String> {
 pub fn normalize_plugin_path(value: &str) -> String {
     if value.contains('/') {
         value.to_owned()
-    } else {
+    } else if value.to_ascii_lowercase().ends_with(".jar") {
         format!("plugins/{value}")
+    } else {
+        format!("plugins/{value}.jar")
     }
 }
 
