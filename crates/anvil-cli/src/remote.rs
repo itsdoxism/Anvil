@@ -138,17 +138,29 @@ pub fn write_file(remote: &RemoteServer, path: &str, bytes: &[u8]) -> Result<Str
     }
 }
 
-pub fn store_backup(server: &RemoteServer, file: &RemoteFile) -> Result<PathBuf> {
+pub fn store_object(bytes: &[u8]) -> Result<(String, PathBuf)> {
+    let sha256 = sha256_bytes(bytes);
     let root = data_root()?.join("objects");
-    let object = root
-        .join(&file.sha256[..2])
-        .join(&file.sha256[2..]);
+    let object = root.join(&sha256[..2]).join(&sha256[2..]);
     if !object.exists() {
         if let Some(parent) = object.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&object, &file.bytes)?;
+        fs::write(&object, bytes)?;
     }
+    Ok((sha256, object))
+}
+
+pub fn load_object(sha256: &str) -> Result<Vec<u8>> {
+    if sha256.len() != 64 || !sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+        bail!("invalid object hash: {sha256}");
+    }
+    let path = data_root()?.join("objects").join(&sha256[..2]).join(&sha256[2..]);
+    fs::read(&path).with_context(|| format!("missing local object {}", path.display()))
+}
+
+pub fn store_backup(server: &RemoteServer, file: &RemoteFile) -> Result<PathBuf> {
+    let (_, object) = store_object(&file.bytes)?;
 
     let record_dir = data_root()?.join("backups").join(&server.name);
     fs::create_dir_all(&record_dir)?;
@@ -241,7 +253,7 @@ fn config_root() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".config/anvil"))
 }
 
-fn data_root() -> Result<PathBuf> {
+pub(crate) fn data_root() -> Result<PathBuf> {
     if let Some(value) = env::var_os("XDG_DATA_HOME") {
         return Ok(PathBuf::from(value).join("anvil"));
     }
