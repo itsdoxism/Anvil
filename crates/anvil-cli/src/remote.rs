@@ -152,8 +152,12 @@ pub fn store_backup(server: &RemoteServer, file: &RemoteFile) -> Result<PathBuf>
 
     let record_dir = data_root()?.join("backups").join(&server.name);
     fs::create_dir_all(&record_dir)?;
-    let safe_name = file.path.replace('/', "__");
-    let record = record_dir.join(format!("{}--{}.json", &file.sha256[..12], safe_name));
+    let path_hash = sha256_bytes(file.path.as_bytes());
+    let record = record_dir.join(format!(
+        "{}--{}.json",
+        &path_hash[..12],
+        &file.sha256[..12]
+    ));
     let metadata = serde_json::json!({
         "server": server.name,
         "server_id": server.server_id,
