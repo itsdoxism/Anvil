@@ -1,3 +1,4 @@
+mod deployment;
 mod remote;
 
 use anyhow::{bail, Context, Result};
@@ -15,6 +16,17 @@ use std::{
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+enum PluginCommand {
+    /// Show the local deployment journal for one remote plugin JAR.
+    History {
+        name: String,
+        plugin: String,
+        #[arg(short = 'n', long, default_value_t = 20)]
+        limit: usize,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -84,6 +96,30 @@ enum Command {
         /// Skip the overwrite confirmation.
         #[arg(short = 'y', long)]
         yes: bool,
+    },
+    /// Deploy a plugin JAR and journal the previous/current versions locally.
+    Deploy {
+        name: String,
+        jar: PathBuf,
+        /// Override the remote JAR path. Defaults to plugins/<local-filename>.
+        #[arg(long)]
+        remote_path: Option<String>,
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+    /// Restore the previous deployed JAR, or a specific local object by hash prefix.
+    Rollback {
+        name: String,
+        plugin: String,
+        #[arg(long)]
+        to: Option<String>,
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+    /// Plugin deployment history and related utilities.
+    Plugin {
+        #[command(subcommand)]
+        command: PluginCommand,
     },
 }
 
@@ -262,6 +298,112 @@ fn main() -> Result<()> {
                 &hash[..12]
             );
         }
+        Command::Deploy {
+            name,
+            jar,
+            remote_path,
+            yes,
+        } => {
+            let server = remote::load(&name)?;
+            let target = match remote_path {
+                Some(path) => path,
+                None => deployment::default_remote_path(&jar)?,
+            };
+
+            if !yes
+                && !confirm(&format!(
+                    "Deploy {} -> {}:{}? [y/N] ",
+                    jar.display(),
+                    name,
+                    target
+                ))?
+            {
+                println!("Cancelled.");
+                return Ok(());
+            }
+
+            let record = deployment::deploy(&server, &jar, &target)?;
+            println!("Deployed {} -> {}:{}", jar.display(), name, target);
+            match &record.from_sha256 {
+                Some(previous) => println!(
+                    "{} -> {}",
+                    deployment::short(previous),
+                    deployment::short(&record.to_sha256)
+                ),
+                None => println!("new -> {}", deployment::short(&record.to_sha256)),
+            }
+            println!("Previous and deployed JAR bytes are stored locally.");
+        }
+        Command::Rollback {
+            name,
+            plugin,
+            to,
+            yes,
+        } => {
+            let server = remote::load(&name)?;
+            let target = deployment::normalize_plugin_path(&plugin);
+
+            if !yes
+                && !confirm(&format!(
+                    "Rollback {}:{}{}? [y/N] ",
+                    name,
+                    target,
+                    to.as_ref()
+                        .map(|hash| format!(" to {hash}"))
+                        .unwrap_or_default()
+                ))?
+            {
+                println!("Cancelled.");
+                return Ok(());
+            }
+
+            let record = deployment::rollback(&server, &target, to.as_deref())?;
+            println!(
+                "Rolled back {}:{} {} -> {}",
+                name,
+                target,
+                record
+                    .from_sha256
+                    .as_deref()
+                    .map(deployment::short)
+                    .unwrap_or("new"),
+                deployment::short(&record.to_sha256)
+            );
+        }
+        Command::Plugin { command } => match command {
+            PluginCommand::History {
+                name,
+                plugin,
+                limit,
+            } => {
+                let server = remote::load(&name)?;
+                let target = deployment::normalize_plugin_path(&plugin);
+                let history = deployment::history(&server, &target)?;
+
+                if history.is_empty() {
+                    println!("no deployment history for {}:{}", name, target);
+                } else {
+                    for record in history.into_iter().rev().take(limit) {
+                        let action = match record.action {
+                            deployment::DeploymentAction::Deploy => "deploy",
+                            deployment::DeploymentAction::Rollback => "rollback",
+                        };
+                        let from = record
+                            .from_sha256
+                            .as_deref()
+                            .map(deployment::short)
+                            .unwrap_or("new");
+                        println!(
+                            "{}  {:8}  {} -> {}",
+                            record.timestamp.to_rfc3339(),
+                            action,
+                            from,
+                            deployment::short(&record.to_sha256)
+                        );
+                    }
+                }
+            }
+        },
     }
     Ok(())
 }
