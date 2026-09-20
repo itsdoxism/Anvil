@@ -221,7 +221,8 @@ fn read_response(reader: &mut impl BufRead) -> Result<AgentResponse> {
 }
 
 fn encode_path(path: &str) -> String {
-    URL_SAFE_NO_PAD.encode(path.as_bytes())
+    let normalized = if path.is_empty() { "." } else { path };
+    URL_SAFE_NO_PAD.encode(normalized.as_bytes())
 }
 
 fn server_path(name: &str) -> Result<PathBuf> {
