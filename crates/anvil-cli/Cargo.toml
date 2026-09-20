@@ -1,0 +1,15 @@
+[package]
+name = "anvil-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "anvil"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+anvil-core = { path = "../anvil-core" }
+clap.workspace = true
+serde_json.workspace = true
