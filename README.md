@@ -40,6 +40,25 @@ The agent sandboxes file operations to the Minecraft server directory and reject
 
 > The current v0 transport is development-only and **not encrypted yet**. The agent binds to `127.0.0.1` by default. Use a trusted LAN/VPN until authenticated encryption lands.
 
-Next: safe plugin JAR deployment/rollback and encrypted transport.
+## Plugin deployment
+
+Anvil keeps plugin deployment history locally and stores JAR bytes by SHA-256:
+
+```bash
+anvil deploy mellow ./build/libs/MellowGuard.jar
+anvil plugin history mellow MellowGuard
+anvil rollback mellow MellowGuard
+
+# restore a specific version from the local object store
+anvil rollback mellow MellowGuard --to 8f21c1
+```
+
+By default, `deploy` targets `plugins/<local-jar-name>`. Use `--remote-path` when the remote filename differs.
+
+Before replacing a remote JAR, Anvil stores the old JAR locally. The newly deployed JAR is stored locally too, so rollback does not depend on the remote host retaining older files.
+
+Anvil currently replaces the JAR on disk only; it does not hot-reload Paper plugins. Restart or otherwise reload the server using your normal server workflow.
+
+Next: encrypted transport, richer deployment health checks, and server log streaming.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`agent/README.md`](agent/README.md).
