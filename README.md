@@ -7,27 +7,39 @@ Anvil is built for server owners and developers who would rather open a terminal
 ## Local versioning
 
 ```bash
-cargo run -p anvil-cli -- init ./server
-cargo run -p anvil-cli -- status ./server
-cargo run -p anvil-cli -- commit ./server -m "before plugin update"
-cargo run -p anvil-cli -- log ./server
+anvil init ./server
+anvil status ./server
+anvil commit ./server -m "before plugin update"
+anvil log ./server
 ```
 
 Repositories use a SHA-256 content-addressed object store under `.anvil/`, so unchanged files are not duplicated between commits.
 
-## Remote milestone
+## Remote server
 
-The first Anvil Agent milestone now supports pairing plus live server/player information:
+Pair once:
 
 ```bash
 anvil pair mellow 192.168.1.20:45920
-anvil info mellow
-anvil players mellow
-anvil players mellow --json
 ```
 
-The current v0 transport is **development-only and not encrypted yet**. The agent binds to `127.0.0.1` by default. Use a trusted LAN/VPN for remote testing until authenticated encryption lands.
+Then work from any shell:
 
-The next remote milestone adds filesystem operations (`tree`, `pull`, `push`) and safe plugin JAR deployment/rollback.
+```bash
+anvil info mellow
+anvil players mellow
+anvil tree mellow plugins --depth 3
+anvil cat mellow plugins/MellowGuard/config.yml
+anvil pull mellow logs/latest.log ./latest.log
+anvil push mellow ./config.yml plugins/MellowGuard/config.yml
+```
+
+When `push` replaces an existing remote file, Anvil first downloads the old bytes into the local content-addressed backup store and asks for confirmation. Uploads are SHA-256 verified and installed through a temporary file plus atomic replace where supported.
+
+The agent sandboxes file operations to the Minecraft server directory and rejects absolute paths, traversal outside the root, and symlink traversal. Single transfers are capped by `max-transfer-bytes`.
+
+> The current v0 transport is development-only and **not encrypted yet**. The agent binds to `127.0.0.1` by default. Use a trusted LAN/VPN until authenticated encryption lands.
+
+Next: safe plugin JAR deployment/rollback and encrypted transport.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`agent/README.md`](agent/README.md).
